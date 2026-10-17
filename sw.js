@@ -1,5 +1,5 @@
 // Bump CACHE when the app files change so phones pick up the new version.
-const CACHE = 'farrq-v6';
+const CACHE = 'farrq-v7';
 const FILES = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './jspdf.umd.min.js'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));
