@@ -236,6 +236,7 @@ svg{width:100%;height:auto;display:block}
 
 <div class="toast" id="toast"></div>
 
+<script src="jspdf.umd.min.js"></script>
 <script>
 const KEY_E='farrq.entries', KEY_S='farrq.settings';
 const DEF={rateHome:3.88,rateStation:7.35,loss:10,pack:42.7,claim:12.0,petrol:29.88,compare:8.5,theme:'dark'};
@@ -389,6 +390,121 @@ function lineSVG(rows){
   g+=`<text x="${L}" y="${H-6}" font-size="9" fill="var(--muted)">Oldest</text><text x="${W-R}" y="${H-6}" text-anchor="end" font-size="9" fill="var(--muted)">Latest</text>`;
   return `<svg viewBox="0 0 ${W} ${H}">${g}</svg>
     <div class="small">Gold dashed = claim ${S.claim.toFixed(1)} · cyan dashed = average ${avg.toFixed(1)} · green = best ${best.cons.toFixed(1)} · red = worst ${worst.cons.toFixed(1)}</div>`;
+}
+
+/* PDF report */
+function buildReport(jsPDF,o){
+  const rows=o.rows, inc=o.inc, periodLabel=o.periodLabel;
+  const s=summ(rows), st=carStats(rows);
+  const doc=new jsPDF({unit:'mm',format:'a4'});
+  const W=210,H=297,M=14;
+  let y=M;
+  const C={ink:[230,236,246],muted:[131,147,173],gold:[224,179,90],cyan:[34,211,238],blue:[59,130,246],warn:[251,146,60],line:[31,43,64],bg:[11,15,23]};
+  const col=c=>doc.setTextColor(c[0],c[1],c[2]);
+  const paint=()=>{doc.setFillColor(C.bg[0],C.bg[1],C.bg[2]);doc.rect(0,0,W,H,'F');};
+  const page=()=>{doc.addPage();paint();y=M;};
+  const need=h=>{if(y+h>H-M)page();};
+  const title=t=>{need(14);doc.setFont('helvetica','bold');doc.setFontSize(16);col(C.ink);doc.text(t,M,y+6);y+=11;};
+  const sub=t=>{need(12);y+=3;doc.setFont('helvetica','bold');doc.setFontSize(11);col(C.cyan);doc.text(t,M,y+5);y+=8;};
+  const note=t=>{need(6);doc.setFont('helvetica','normal');doc.setFontSize(8);col(C.muted);const L=doc.splitTextToSize(t,W-2*M);doc.text(L,M,y+4);y+=4*L.length+2;};
+  const table=(heads,xs,body)=>{
+    need(9);
+    doc.setFont('helvetica','bold');doc.setFontSize(7.5);col(C.gold);
+    heads.forEach((h,i)=>doc.text(h,M+xs[i],y+4));
+    doc.setDrawColor(C.line[0],C.line[1],C.line[2]);doc.line(M,y+5.5,W-M,y+5.5);y+=7;
+    doc.setFont('helvetica','normal');doc.setFontSize(7.5);
+    if(!body.length){note('Nothing logged in this period.');return;}
+    body.forEach(r=>{need(5.5);col(C.ink);r.forEach((v,i)=>doc.text(String(v),M+xs[i],y+3.8));y+=5;});
+    y+=3;
+  };
+  const kv=pairs=>{
+    pairs.forEach(p=>{
+      need(6.5);doc.setFont('helvetica','normal');doc.setFontSize(9);col(C.muted);doc.text(p[0],M,y+4);
+      col(C.ink);doc.setFont('helvetica','bold');doc.text(String(p[1]),W-M,y+4,{align:'right'});
+      doc.setDrawColor(C.line[0],C.line[1],C.line[2]);doc.line(M,y+5.8,W-M,y+5.8);y+=6.5;
+    });
+    y+=3;
+  };
+  const bars=(items,maxV)=>{
+    const bh=42,bw=(W-2*M)/items.length;
+    need(bh+14);
+    const base=y+bh;
+    doc.setDrawColor(C.line[0],C.line[1],C.line[2]);
+    [0,4,8,12,16].forEach(v=>{const yy=base-bh*v/maxV;doc.line(M,yy,W-M,yy);doc.setFontSize(6);col(C.muted);doc.text(String(v),M-1,yy+1,{align:'right'});});
+    items.forEach((it,i)=>{
+      const x=M+i*bw+bw*0.2,w=bw*0.6,hh=bh*Math.min(it.v,maxV)/maxV;
+      const f=it.warn?C.warn:C.blue;
+      doc.setFillColor(f[0],f[1],f[2]);doc.rect(x,base-hh,w,hh,'F');
+      doc.setFontSize(6.5);col(C.ink);doc.text(String(it.label),x+w/2,base+4,{align:'center'});
+      doc.setFontSize(5.5);col(C.muted);doc.text(String(it.sub),x+w/2,base+7.5,{align:'center'});
+    });
+    y=base+12;
+  };
+
+  paint();
+  title('FARR Q Charge report');
+  note('Cherry Q efficiency  ·  '+periodLabel+'  ·  generated '+stamp(Date.now()));
+  if(inc('sum')){
+    sub('Summary');
+    kv([
+      ['Trips logged',s.trips],
+      ['Distance, all trips',s.km.toFixed(1)+' km'],
+      ['Distance only (left out of efficiency)',s.distanceOnly],
+      ['Efficiency (kWh/100 km)',s.eff==null?'--':s.eff.toFixed(1)+'   (claim '+S.claim.toFixed(1)+')'],
+      ['Charges logged',s.charges],
+      ['Charged at wall',s.wall.toFixed(2)+' kWh'],
+      ['Charging spend',money(s.cost)],
+      ['Electric cost per km',s.perKm==null?'--':'R'+s.perKm.toFixed(2)],
+      ['Petrol cost per km ('+S.compare+' L/100 km at R'+S.petrol.toFixed(2)+'/L)','R'+(S.compare/100*S.petrol).toFixed(2)],
+      ['Car claim accuracy',st?st.accuracy.toFixed(1)+'%':'--']
+    ]);
+  }
+  if(inc('graph')){
+    const days={};
+    s.T.filter(r=>r.countEff).forEach(r=>{const k=dk(r.ts);if(!days[k])days[k]={km:0,u:0,ts:r.ts};days[k].km+=r.km;days[k].u+=r.used;});
+    const keys=Object.keys(days).sort();
+    sub('Daily efficiency (kWh/100 km)');
+    if(keys.length){
+      bars(keys.map(k=>{const d=days[k],e=d.u/d.km*100,dt=new Date(d.ts);return {label:dt.getDate(),sub:dt.toLocaleDateString('en-ZA',{weekday:'short'}),v:e,warn:e>14};}),16);
+    }else note('No trips count toward efficiency in this period.');
+    sub('Charging split (wall kWh)');
+    const tot=s.home+s.station, pc=v=>tot?'  ('+Math.round(v/tot*100)+'%)':'';
+    kv([['Home',s.home.toFixed(2)+' kWh'+pc(s.home)],['Station',s.station.toFixed(2)+' kWh'+pc(s.station)]]);
+  }
+  if(inc('car')&&st){
+    sub('Car claim vs real');
+    kv([
+      ['Accuracy of car claim',st.accuracy.toFixed(1)+'%'],
+      ['Car screen, km per 1%',st.carPerPct.toFixed(2)],
+      ['Real driving, km per 1%',st.realPerPct.toFixed(2)],
+      ['Average gap',(st.gap>=0?'+':'')+st.gap.toFixed(1)+'%']
+    ]);
+    table(['Date','Battery','Car says','Real','Gap'],[0,50,85,115,150],
+      st.C.slice().sort((a,b)=>a.ts-b.ts).map(r=>{const real=r.pct*st.realPerPct,d=(real-r.carKm)/r.carKm*100;return [stamp(r.ts),r.pct+'%',r.carKm+' km',real.toFixed(0)+' km',(d>=0?'+':'')+d.toFixed(1)+'%'];}));
+  }
+  if(inc('trips')){
+    sub('Trip log');
+    table(['Date','Odometer','Battery','km','kWh','kWh/100','Note'],[0,36,58,76,92,110,128],
+      s.T.slice().sort((a,b)=>a.ts-b.ts).map(r=>[stamp(r.ts),r.odo+' km',r.pct+'%',r.km.toFixed(1),r.countEff?r.used.toFixed(2):'--',r.countEff?r.cons.toFixed(1):'--',r.countEff?'':'distance only']));
+  }
+  if(inc('charges')){
+    sub('Charge log');
+    table(['Date','Where','Battery','Wall kWh','Cost'],[0,50,80,110,140],
+      s.C.slice().sort((a,b)=>a.ts-b.ts).map(r=>[stamp(r.ts),r.where||'Unlogged',r.pct+'%',r.wall.toFixed(2),money(r.cost)]));
+  }
+  if(inc('method')){
+    sub('Method and assumptions');
+    [
+      'Energy per trip = battery % drop x '+S.pack+' kWh pack.',
+      'Efficiency counts only trips of 5 km or more, with a battery drop of 2% or more, and readings no more than 24 hours apart.',
+      'Other trips count toward total distance only.',
+      'Charge energy = battery % rise x '+S.pack+' kWh; wall energy adds '+S.loss+'% charging loss.',
+      'Charging cost uses the Home or Station rate in Settings; unlogged charges use the Home rate.',
+      'Electric cost per km = efficiency x (1 + loss) x average charging rate.',
+      'Car claim accuracy = 100% minus the average gap between the car screen range and the real estimate at the same battery %.'
+    ].forEach(t=>note('- '+t));
+  }
+  return doc;
 }
 
 /* ---------- screens ---------- */
@@ -678,8 +794,23 @@ function renderShare(){
     row('Charging spend',money(s.cost))+
     row('Car claim accuracy',st?st.accuracy.toFixed(1)+'%':'--')+row('Estimated PDF pages',pages);
 }
-function makePdf(){
-  toast('Prototype: the real app builds the PDF on your phone, then opens the share sheet.');
+async function makePdf(){
+  if(!window.jspdf||!window.jspdf.jsPDF)return toast('PDF tool did not load. Reopen the app and try again.');
+  const rows=rowsFor(sRange);
+  const pl=sRange==='all'?'All entries':'Last '+sRange+' days';
+  const inc=id=>document.getElementById('inc_'+id).checked;
+  try{
+    const doc=buildReport(window.jspdf.jsPDF,{rows,inc,periodLabel:pl});
+    const blob=doc.output('blob');
+    const name='FARR_Q_report_'+dk(Date.now()).replace(/-/g,'_')+'.pdf';
+    const file=new File([blob],name,{type:'application/pdf'});
+    if(navigator.canShare&&navigator.canShare({files:[file]})){
+      try{await navigator.share({files:[file],title:'FARR Q Charge report'});}catch(e){}
+    }else{
+      const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();
+      toast('PDF saved to your downloads');
+    }
+  }catch(e){toast('Could not build the PDF: '+(e&&e.message?e.message:'unknown error'));}
 }
 
 function renderAll(){renderHome();renderHist();renderGraph();renderShare();renderSettings();}
