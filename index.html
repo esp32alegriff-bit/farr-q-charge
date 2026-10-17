@@ -199,7 +199,6 @@ svg{width:100%;height:auto;display:block}
   <button class="app-row" onclick="toggleTheme()"><div>Theme<br><span class="small" id="themeName"></span></div><span class="small">Switch</span></button>
   <button class="app-row" onclick="exportCSV()"><div>Export backup<br><span class="small">Downloads all entries as CSV</span></div><span class="small">Export</span></button>
   <button class="app-row" onclick="shareApp()"><div>Share the app<br><span class="small">Send the link to someone else</span></div><span class="small">Share</span></button>
-  <button class="app-row" onclick="loadSample()"><div>Load sample data<br><span class="small">Replaces entries with the 1–16 Oct demo set</span></div><span class="small">Load</span></button>
   <button class="btn ghost" onclick="go('graph')">Back to graphs</button>
 </section>
 
@@ -269,7 +268,7 @@ function sampleEntries(){
 function load(){
   try{S=Object.assign({},DEF,JSON.parse(localStorage.getItem(KEY_S)||'{}'));}catch(e){}
   try{E=JSON.parse(localStorage.getItem(KEY_E)||'null');}catch(e){E=null;}
-  if(!E||!E.length)E=sampleEntries();
+  if(!E||!E.length)E=[];
 }
 function save(){
   try{localStorage.setItem(KEY_E,JSON.stringify(E));localStorage.setItem(KEY_S,JSON.stringify(S));}catch(e){}
@@ -509,6 +508,7 @@ function buildReport(jsPDF,o){
 
 /* ---------- screens ---------- */
 function go(id){
+  if(!E.length&&id!=='set'){toast('Enter your starting point in Settings first');id='set';}
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('on'));
   document.getElementById('s-'+id).classList.add('on');
   const navKey={home:'home',trip:'home',charge:'home',hist:'hist',graph:'graph',set:'graph',share:'share'}[id];
@@ -528,6 +528,12 @@ function setRange(btn){
   renderHome();
 }
 function renderHome(){
+  if(!E.length){
+    document.getElementById('homeAlert').innerHTML='<div class="card"><div class="small">Set your starting point in Settings first: your current odometer and battery %.</div></div>';
+    document.getElementById('effBig').textContent='--';document.getElementById('effSub').textContent='';
+    document.getElementById('homeBar').innerHTML='';document.getElementById('homeRows').innerHTML='';
+    return;
+  }
   const rows=rowsFor(range), s=summ(rows);
   const U=derive().filter(r=>r.type==='charge'&&!r.where).length;
   const days=(Date.now()-lastState().ts)/864e5, dd=Math.floor(days);
@@ -755,7 +761,6 @@ async function shareApp(){
   try{await navigator.clipboard.writeText(url);toast('Link copied');}
   catch(e){toast(url);}
 }
-function loadSample(){E=sampleEntries();save();renderAll();toast('Sample data loaded');}
 function exportCSV(){
   const head='date,time,type,odometer_km,battery_pct,km,kwh_used,kwh_per_100km,where,kwh_wall,cost_r';
   const lines=derive().map(r=>{
