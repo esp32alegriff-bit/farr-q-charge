@@ -1,5 +1,5 @@
 // Bump CACHE when the app files change so phones pick up the new version.
-const CACHE = 'farrq-v10';
+const CACHE = 'farrq-v11';
 const SHARE_CACHE = 'farrq-share';
 const FILES = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './jspdf.umd.min.js'];
 self.addEventListener('install', e => {
